@@ -1,0 +1,54 @@
+# Temporary, fork-only: AGENTS.md's pre-merge workspace checks for storytold/craft-libs#619
+# at its head. Not part of the PR; the branch is deleted after the run.
+name: Verify PR 619 workspace
+on:
+  push:
+    branches: [verify/pr-619-workspace-aa91d18]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  workspace:
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CRAFT_FONTS_DIR: ${{ github.workspace }}/.test-inputs/craft-fonts
+      CRAFT_PRINT_REQUIRE_QUEUE: ${{ matrix.os == 'windows-latest' && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Checkout test fonts
+        uses: actions/checkout@v4
+        with:
+          repository: storytold/craft-fonts
+          ref: b076417b5880bd4154bd22f00695b1d28c6bea83
+          path: .test-inputs/craft-fonts
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Provision licensed PDF test fonts
+        shell: bash
+        run: |
+          python scripts/fetch-pdf-test-fonts.py "$RUNNER_TEMP/craft-pdf-test-fonts"
+          echo "CRAFT_PDF_TEST_FONT_DIR=$RUNNER_TEMP/craft-pdf-test-fonts" >> "$GITHUB_ENV"
+      - name: Prepare the Windows test driver
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Start-Service Spooler
+          Add-PrinterDriver -Name 'Generic / Text Only'
+      - name: Linux system libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libxkbcommon-dev libgtk-3-dev acl ffmpeg libvulkan1 mesa-vulkan-drivers
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
